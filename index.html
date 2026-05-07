@@ -331,40 +331,59 @@
 
 <div class="toast" id="toast"></div>
 
+<!-- Firebase SDK -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+
 <script>
-// ── 서버 저장소 API (window.storage) 래퍼 ──
-// GitHub Pages에서는 localStorage로 폴백, Claude 아티팩트 환경에서는 window.storage 사용
+// ── Firebase 설정 ──
+const firebaseConfig = {
+  apiKey: "AIzaSyAYdeB3QNV-X1WP2HIwQhUC2T3YN_4M7HM",
+  authDomain: "debate-e2b95.firebaseapp.com",
+  databaseURL: "https://debate-e2b95-default-rtdb.firebaseio.com",
+  projectId: "debate-e2b95",
+  storageBucket: "debate-e2b95.appspot.com",
+  messagingSenderId: "47367376352",
+  appId: "1:47367376352:web:056b079632987850f62f85"
+};
+
+// Firebase 초기화
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+// ── 서버 저장소 ──
 const storage = {
   async get(key) {
     try {
-      if (window.storage && window.storage.get) {
-        const r = await window.storage.get(key, true); // shared=true: 모든 사용자 공유
-        return r ? r.value : null;
-      }
-    } catch(e) {}
-    return localStorage.getItem(key);
+      const snapshot = await db.ref(key).once('value');
+      return snapshot.val();
+    } catch(e) {
+      console.error("데이터 가져오기 실패:", e);
+      return null;
+    }
   },
   async set(key, value) {
     try {
-      if (window.storage && window.storage.set) {
-        await window.storage.set(key, value, true); // shared=true
-        return true;
-      }
-    } catch(e) {}
-    localStorage.setItem(key, value);
-    return true;
+      await db.ref(key).set(value);
+      return true;
+    } catch(e) {
+      console.error("데이터 저장 실패:", e);
+      return false;
+    }
   },
   async getAll(prefix) {
     // 모든 모둠 데이터 읽기 (선생님 전용)
-    const result = {};
-    for (let g = 1; g <= 8; g++) {
-      for (const f of ALL_FIELDS) {
-        const key = `toron_g${g}_${f}`;
-        const val = await this.get(key);
-        if (val) result[key] = val;
-      }
+    try {
+      const snapshot = await db.ref().once('value');
+      const data = snapshot.val() || {};
+      const result = {};
+      Object.keys(data).forEach(key => {
+        if(key.startsWith('toron_')) result[key] = data[key];
+      });
+      return result;
+    } catch(e) {
+      return {};
     }
-    return result;
   }
 };
 
@@ -514,13 +533,7 @@ async function buildCompareAll() {
   setSyncStatus('loading','전체 데이터 불러오는 중...');
 
   // 모든 모둠 데이터 로드
-  const allData = {};
-  for (let g = 1; g <= 8; g++) {
-    allData[g] = {};
-    for (const f of ALL_FIELDS) {
-      allData[g][f] = await storage.get(skey(g, f)) || '';
-    }
-  }
+  const allData = await storage.getAll();
 
   const r = caRound, side = caSide;
   const sideLabel = side==='pro' ? '🌱 찬성' : '🔴 반대';
@@ -536,7 +549,7 @@ async function buildCompareAll() {
     html += `<div class="ca-section-body"><div class="ca-group-rows">`;
     for (let g = 1; g <= 8; g++) {
       const f = `r${r}_${side}_${key}`;
-      const val = allData[g][f] || '';
+      const val = allData[skey(g, f)] || '';
       html += `<div class="ca-group-row">`;
       html += `<div class="ca-group-label">${g}모둠</div>`;
       html += val.trim()
